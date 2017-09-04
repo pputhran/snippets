@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Loads Euromillion data sets into DynamoDB using Lambda function.
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: "/"
+      RoleName: "euromillion-Lambda-s3-role"
+
+  LambdaRolePolicies:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: euromillion-loader-policy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Effect: Allow
+            Action: 
+              - s3:Get*       
+              - s3:List*
+            Resource: "*"
+          -
+            Effect: Allow
+            Action: 
+              - dynamodb:PutItem
+            Resource: "arn:aws:dynamodb:*:*:table/euromillion"
+          -
+            Effect: Allow
+            Action: 
+              - s3:ListBucket
+            Resource:
+                Fn::Join: 
+                   - ""
+                   - - "arn:aws:s3:::"
+                     - Ref: MillionaireBucket          
+          -
+            Effect: Allow
+            Action: 
+              - s3:Get*
+              - s3:List*
+              - s3:Put*
+              - s3:Delete*
+            Resource:
+                Fn::Join: 
+                   - ""
+                   - - "arn:aws:s3:::"
+                     - Ref: MillionaireBucket
+                     - /*
+          -
+            Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+            Resource: arn:aws:logs:*:*:*
+      Roles:
+        -
+          Ref: LambdaExecutionRole
+  DynamoDbTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: euromillion
+      AttributeDefinitions:
+        - AttributeName: DrawNumber
+          AttributeType: N  
+      KeySchema:
+        - AttributeName: DrawNumber
+          KeyType: HASH
+      ProvisionedThroughput:
+        ReadCapacityUnits: 5
+        WriteCapacityUnits: 5
+
+  MillionaireBucket:
+    Type: 'AWS::S3::Bucket'
+  BucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      PolicyDocument:
+        Id: MyPolicy
+        Version: 2012-10-17
+        Statement:
+          - Sid: PublicReadForGetBucketObjects
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref MillionaireBucket
+                - /*
+      Bucket: !Ref MillionaireBucket
+
+  LoadEuroMillionDataFunction: 
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: "index.handler"
+      Timeout: 25
+      MemorySize : 256
+      Description: "Lambda function to load millionaire results"
+      Runtime: nodejs6.10
+      Role: 
+        Fn::GetAtt: 
+          - "LambdaExecutionRole"
+          - "Arn"
+      CodeUri: s3://iampawan-billing/code.zip
+      Events:
+        LoadEuroMillion:
+          Type: S3
+          Properties:
+            Bucket: !Ref MillionaireBucket
+            Events: s3:ObjectCreated:*
